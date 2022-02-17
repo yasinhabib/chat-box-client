@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import httpRequest from 'plugin/httprequest'
 import {formatDefaultDate} from 'plugin/helper'
+import ProtobufLib from 'plugin/protobuflib'
 
 class Chatbox extends Component {
     constructor(props){
@@ -15,18 +16,26 @@ class Chatbox extends Component {
         }
 
         this.stomp = this.props.stomp
+
+        this.ObjectProto = null
     }
 
     componentDidMount = async () => {
         var users = await httpRequest(process.env.REACT_APP_BACKEND,this.props.store,'get-all-users')
 
-        this.setState({
-            users: users
-        })
+        if(users.status){
+            window.location.href = '/login'
+        }else{
+            this.setState({
+                users: users
+            })
+        }
+
+        let ObjectProtoFile = '/proto/chatmessage.proto';
+        this.ObjectProto = new ProtobufLib(ObjectProtoFile);
     }
 
     componentDidUpdate = (prevProp,prevState) => {
-        console.log(prevState.chats !== this.state.chats,prevState.chats,this.state.chats)
         if(prevState.chats !== this.state.chats){
             this.scrollToBottom(document.getElementById('chat-container'))
         }   
@@ -43,27 +52,46 @@ class Chatbox extends Component {
     loadChat = async (e) => {
         var chats = await httpRequest(process.env.REACT_APP_BACKEND,this.props.store,`get-all-chats/${this.state.selectedUser}`)
 
-        this.setState({
-            chats: chats
-        })
+        let messageKey = 'listMessage'
+        let lookup = 'chatmessage.listMessage'
 
-        this.stomp.stompClient.subscribe(`/exchange/chat.message/${this.state.selectedUser}`,(message) => {
-            message = JSON.parse(message.body)
+        var protoListMessage =  await this.ObjectProto.loadProto(messageKey,lookup)
 
-            var isSender = message.user_id === this.props.store.getState().sessionUser.id ? 'S' : 'R'
+        if(protoListMessage){
+            if(chats.length > 0){
+                let result = this.ObjectProto.decode(messageKey,chats);
+                this.setState({
+                    chats: result.message
+                })
+            }
+        }
 
-            this.setState({
-                chats: [
-                    ...this.state.chats,
-                    {
-                        user_id: message.user_id,
-                        message: message.message,
-                        target_user_id: message.target_user_id,
-                        created_at: new Date(),
-                        isSender: isSender,
-                    }
-                ]
-            })
+        this.ObjectProto.unload(messageKey);
+        
+        this.stomp.stompClient.subscribe(`/exchange/chat.message/${this.state.selectedUser}`,async (message) => {
+            let messageKey = 'postMessage'
+            let lookup = 'chatmessage.postMessage'
+
+            var protoPostMessage =  await this.ObjectProto.loadProto(messageKey,lookup)
+            if(protoPostMessage){
+                let result = this.ObjectProto.decode(messageKey,message.binaryBody);
+                
+                var isSender = result.userId === this.props.store.getState().sessionUser.id ? true : false
+    
+                this.setState({
+                    chats: [
+                        ...this.state.chats,
+                        {
+                            userId: result.userId,
+                            message: result.message,
+                            targetUserId: result.targetUserId,
+                            createdAt: new Date(),
+                            isSender: isSender,
+                        }
+                    ]
+                })
+            }
+            this.ObjectProto.unload(messageKey);
         });
     }
 
@@ -75,11 +103,25 @@ class Chatbox extends Component {
 
     sendChat = async (e) => {
         var message = {
-            user_id: this.props.store.getState().sessionUser.id,
+            userId: this.props.store.getState().sessionUser.id,
             message: this.state.message,
-            target_user_id: parseInt(this.state.selectedUser),
+            targetUserId: parseInt(this.state.selectedUser),
         }
-        this.stomp.publish({destination: '/exchange/chat.message', body: JSON.stringify(message)});
+
+        let messageKey = 'postMessage'
+        let lookup = 'chatmessage.postMessage'
+
+        var protoPostMessage =  await this.ObjectProto.loadProto(messageKey,lookup)
+        if(protoPostMessage){
+            let result = this.ObjectProto.encode(messageKey,message);
+    
+            this.stomp.publish({destination: '/exchange/chat.message', binaryBody: result});
+            this.setState({
+                message: ''
+            })
+    
+        }
+        this.ObjectProto.unload(messageKey);
     }
 
     scrollToBottom = (element) => {
@@ -123,21 +165,21 @@ class Chatbox extends Component {
                             <div className="d-block m-4">
                                 {
                                     this.state.chats.map((value,index) => {
-                                        var side = value.user_id === parseInt(this.state.selectedUser) ? 'R' : 'S'
+                                        var side = value.isSender ? 'S' : 'R' 
                                         var username = side === 'S' ? 'Me' : this.state.selectedUserName
                                         return  <div className={`d-flex flex-column ${side === 'R' ? 'align-items-start' : 'align-items-end'}`}>
                                                     <span>{username}</span>
-                                                    <div class={`alert alert-secondary ${side === 'R' ? 'text-left' : 'text-right'} mb-0`} style={{width: '30%'}} role="alert">
+                                                    <div className={`alert alert-secondary ${side === 'R' ? 'text-left' : 'text-right'} mb-0`} style={{width: '30%'}} role="alert">
                                                         {value.message}
                                                     </div>   
-                                                    <span className="mb-3">{formatDefaultDate(value.created_at)}</span> 
+                                                    <span className="mb-3">{formatDefaultDate(value.createdAt)}</span> 
                                                 </div>
                                     })
                                 }
                             </div>
                         </div>
                         <div className="d-flex mt-3">
-                            <textarea className="form-control" rows={5} onChange={this.message.bind(this)} style={{width: '80%'}}></textarea>
+                            <textarea className="form-control" rows={5} onChange={this.message.bind(this)} style={{width: '80%'}} value={this.state.message}></textarea>
                             <button type="button" className="btn btn-primary btn-sm ml-2" style={{width: '20%'}} onClick={this.sendChat.bind(this)}>
                                 Chat
                             </button>   

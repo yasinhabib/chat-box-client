@@ -22,6 +22,11 @@ export const objectMap = (obj, fn) =>
 )
 
 export function formatDefaultDate(date) {
+    if(typeof date === 'number'){
+        // const time = date
+        date = new Date(date * 1000)
+        // d.setUTCSeconds(time)
+    }
     const months = ["Jan", "Feb", "Mar","Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var d = typeof date === 'string' ? new Date(date) : date,
         // month = '' + (d.getMonth() + 1),
