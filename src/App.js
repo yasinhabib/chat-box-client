@@ -1,9 +1,7 @@
 import React, { Component } from 'react'
 import Stomp from 'plugin/stomp';
-import Login from './components/login';
 import { Provider } from 'react-redux'
 import { BrowserRouter as Router, Route } from "react-router-dom";
-import Chatbox from 'components/chatbox';
 
 class App extends Component {
   constructor(props){
@@ -22,8 +20,6 @@ class App extends Component {
       <div className="App">
         <Provider store={this.props.store}>
           <Router>
-            <Route exact path="/login" component={(props) => <Login {...props} store={this.props.store} />}/>
-            <Route exact path="/" component={(props) => <Chatbox {...props} store={this.props.store} stomp={this.stomp}/>}/>
           </Router>
         </Provider>
       </div>
